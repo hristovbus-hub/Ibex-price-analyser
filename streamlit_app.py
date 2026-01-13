@@ -6,7 +6,7 @@ st.set_page_config(page_title="Анализатор на Цени", layout="cent
 st.title("📊 Пълен Дневен Анализ")
 st.write("Търсене на най-висока средна цена за **целия ден**.")
 
-uploaded_file = st.file_uploader("Избери файл", type=None)
+uploaded_file = st.file_uploader("Избери файл", type=['csv', 'txt'])
 
 if uploaded_file is not None:
     try:
