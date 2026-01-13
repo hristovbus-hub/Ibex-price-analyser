@@ -18,8 +18,8 @@ if uploaded_file is not None:
         df['Цена (EUR/MWh)'] = df['Цена (EUR/MWh)'].str.replace(',', '.').astype(float)
 
     # Филтър след 10:30 (QH 43+)
-    df['QH_num'] = df['Продукт'].str.extract('(\d+)').astype(int)
-    df_after = df[df['QH_num'] >= 43].copy()
+    df_after = df.copy() # Сега ще взема всички 96 интервала от началото на деня
+
 
     # Намиране на ТОП 3 периода
     top_3 = df_after.sort_values(by='Цена (EUR/MWh)', ascending=False).head(3)
