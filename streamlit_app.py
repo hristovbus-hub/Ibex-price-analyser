@@ -17,6 +17,7 @@ if uploaded_file is not None:
     try:
         ext = os.path.splitext(uploaded_file.name)[1].lower()
 
+        # Четене според типа файл
         if ext in ['.csv', '.txt']:
             df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
         elif ext == '.xls':
@@ -27,9 +28,13 @@ if uploaded_file is not None:
             st.error("Неподдържан файлов формат.")
             st.stop()
 
+        # Почистване на имената на колоните
         df.columns = [c.strip() for c in df.columns]
+
+        # Вземаме само QH редовете
         df = df[df['Продукт'].astype(str).str.startswith('QH')].copy()
 
+        # Нормализация на цената
         if df['Цена (EUR/MWh)'].dtype == object:
             df['Цена (EUR/MWh)'] = (
                 df['Цена (EUR/MWh)']
@@ -38,11 +43,14 @@ if uploaded_file is not None:
                 .astype(float)
             )
 
+        # Извличане и подреждане по QH
         df['QH'] = df['Продукт'].str.extract(r'QH\s*(\d+)').astype(int)
         df = df.sort_values('QH').reset_index(drop=True)
 
         prices = df['Цена (EUR/MWh)'].tolist()
         n = len(prices)
+
+        # Префиксни суми
         prefix = [0.0] * (n + 1)
         for i in range(n):
             prefix[i + 1] = prefix[i] + prices[i]
@@ -52,8 +60,9 @@ if uploaded_file is not None:
 
         best_total_sum = None
         best_choice = None
-        TOTAL_QH = 11
+        TOTAL_QH = 11  # 2 часа и 45 минути
 
+        # Обхождаме всички разпределения на 11 QH в 3 периода
         for L1 in range(1, TOTAL_QH):
             for L2 in range(1, TOTAL_QH):
                 L3 = TOTAL_QH - L1 - L2
@@ -80,14 +89,28 @@ if uploaded_file is not None:
             blocks = []
             for (start_idx, length) in [(i1, L1), (i2, L2), (i3, L3)]:
                 end_idx = start_idx + length - 1
+
                 start_time = df.loc[start_idx, 'Период на доставка'].split('-')[0].strip()
                 end_time = df.loc[end_idx, 'Период на доставка'].split('-')[1].strip()
+
                 avg_price = df.loc[start_idx:end_idx, 'Цена (EUR/MWh)'].mean()
                 blocks.append((start_time, end_time, length, avg_price))
 
             total_avg = best_total_sum / TOTAL_QH
 
             st.subheader("⏳ Периоди за работа:")
+
             for idx, (b_start, b_end, qh_len, b_avg) in enumerate(blocks, start=1):
-                st.warning(
-                    f"Период {idx}: 🕒 **{b_start} - {b_end}** "
+                msg = (
+                    f"Период {idx}: 🕒 {b_start} - {b_end} "
+                    f"({qh_len} QH) | Средна цена: {b_avg:.2f} EUR/MWh"
+                )
+                st.warning(msg)
+
+            result_msg = f"ОБЩА СРЕДНА ЦЕНА (2ч 45м, 11 QH): {total_avg:.2f} EUR/MWh"
+            st.success(result_msg)
+
+            st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
+
+    except Exception as e:
+        st.error(f"Грешка: {e}")
