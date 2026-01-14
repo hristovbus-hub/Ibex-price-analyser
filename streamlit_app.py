@@ -2,7 +2,17 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
+# Бутон за нов файл
+if st.button("🔄 Нов файл"):
+    st.session_state['reset_uploader'] = pd.Timestamp.now()
 
+# File uploader с динамичен ключ
+uploaded_file = st.file_uploader(
+    "Избери файл",
+    type=['csv', 'txt'],
+    accept_multiple_files=False,
+    key=st.session_state.get('reset_uploader', 'default')
+)
 st.title("📊 Резултати по блокове")
 st.write("Най-скъпите 3 часа, групирани по периоди.")
 
