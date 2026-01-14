@@ -1,22 +1,33 @@
 import streamlit as st
 import pandas as pd
+import os
 
 st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
 
 st.title("📊 Резултати по блокове")
 st.write("Най-скъпите 2 часа и 45 минути, групирани по периоди.")
 
-# 📁 File uploader (нормален, без бутон за reset)
+# 📁 File uploader – вече приема CSV, XLS, XLSX
 uploaded_file = st.file_uploader(
     "Избери файл",
-    type=['csv', 'txt'],
+    type=['csv', 'txt', 'xls', 'xlsx'],
     accept_multiple_files=False
 )
 
 if uploaded_file is not None:
     try:
-        # 1) Четене на файла
-        df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
+        # Определяме разширението
+        ext = os.path.splitext(uploaded_file.name)[1].lower()
+
+        # Четене според типа файл
+        if ext in ['.csv', '.txt']:
+            df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
+        elif ext in ['.xls', '.xlsx']:
+            df = pd.read_excel(uploaded_file, skiprows=9)
+        else:
+            st.error("Неподдържан файлов формат.")
+            st.stop()
+
         df.columns = [c.strip() for c in df.columns]
 
         # Вземаме само редовете с QH продукти
@@ -59,7 +70,6 @@ if uploaded_file is not None:
                 if L3 < 1:
                     continue
 
-                # 4) Всички позиции без застъпване
                 for i1 in range(0, n - L1 + 1):
                     for i2 in range(i1 + L1, n - L2 + 1):
                         for i3 in range(i2 + L2, n - L3 + 1):
@@ -87,7 +97,6 @@ if uploaded_file is not None:
                 avg_price = df.loc[start_idx:end_idx, 'Цена (EUR/MWh)'].mean()
                 blocks.append((start_time, end_time, length, avg_price))
 
-            # 🔥 Средна цена за 11 QH
             total_avg = best_total_sum / TOTAL_QH
 
             st.subheader("⏳ Периоди за работа:")
@@ -99,7 +108,6 @@ if uploaded_file is not None:
 
             st.success(f"📈 ОБЩА СРЕДНА ЦЕНА (2ч 45м, 11 QH): **{total_avg:.2f} EUR/MWh**")
 
-            # Графика
             st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
     except Exception as e:
