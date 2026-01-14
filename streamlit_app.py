@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
-
 st.title("📊 Резултати по блокове")
 st.write("Най-скъпите 3 часа, групирани по периоди.")
 
@@ -10,57 +9,59 @@ uploaded_file = st.file_uploader("Избери файл", type=['csv', 'txt'])
 
 if uploaded_file is not None:
     try:
-        # 1) Четене на файла – почти като при теб
         df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
         df.columns = [c.strip() for c in df.columns]
-
-        # Вземаме само редовете с QH продукти
         df = df[df['Продукт'].astype(str).str.startswith('QH')].copy()
 
-        # Нормализация на цената
-        if df['Цена (EUR/MWh)'].dtype == object:
-            df['Цена (EUR/MWh)'] = (
-                df['Цена (EUR/MWh)']
-                .astype(str)
-                .str.replace(',', '.')
-                .astype(float)
-            )
+        df['Цена (EUR/MWh)'] = (
+            df['Цена (EUR/MWh)']
+            .astype(str)
+            .str.replace(',', '.')
+            .astype(float)
+        )
 
-        # Уверяваме се, че редовете са подредени по QH
         df['QH'] = df['Продукт'].str.extract(r'QH\s*(\d+)').astype(int)
         df = df.sort_values('QH').reset_index(drop=True)
 
-        prices = df['Цена (EUR/MWh)'].tolist()
-        n = len(prices)
+        # Генерираме всички възможни интервали
+        intervals = []
+        for start in range(len(df)):
+            for end in range(start, len(df)):
+                length = end - start + 1
+                avg = df.loc[start:end, 'Цена (EUR/MWh)'].mean()
+                intervals.append((start, end, length, avg))
 
-        # 2) Префиксни суми за бързо смятане на суми по интервали
-        prefix = [0.0] * (n + 1)
-        for i in range(n):
-            prefix[i + 1] = prefix[i] + prices[i]
+        # Търсим най-добрата комбинация от 3 интервала с общо 12 QH и без застъпване
+        best = None
+        for a in intervals:
+            for b in intervals:
+                for c in intervals:
+                    total_len = a[2] + b[2] + c[2]
+                    if total_len != 12:
+                        continue
+                    # Проверка за застъпване
+                    if a[1] < b[0] or b[1] < c[0] or a[1] < c[0]:
+                        total_avg = (
+                            a[3]*a[2] + b[3]*b[2] + c[3]*c[2]
+                        ) / 12
+                        if best is None or total_avg > best[0]:
+                            best = (total_avg, a, b, c)
 
-        def segment_sum(start_idx, length):
-            """Сума на цените от start_idx (вкл.) за 'length' QH."""
-            return prefix[start_idx + length] - prefix[start_idx]
+        if best is None:
+            st.error("Не е намерена комбинация от 3 периода с общо 12 QH.")
+        else:
+            total_avg, a, b, c = best
+            st.subheader(f"📈 ОБЩА СРЕДНА ЦЕНА (3ч): **{total_avg:.2f} EUR/MWh**")
 
-        best_total_sum = None
-        best_choice = None  # ( (i1, L1), (i2, L2), (i3, L3) )
+            for idx, (start, end, length, avg) in enumerate([a, b, c], start=1):
+                start_time = df.loc[start, 'Период на доставка'].split('-')[0].strip()
+                end_time = df.loc[end, 'Период на доставка'].split('-')[1].strip()
+                st.warning(
+                    f"Период {idx}: 🕒 **{start_time} – {end_time}** "
+                    f"({length} QH) | Средна: **{avg:.2f} EUR/MWh**"
+                )
 
-        # 3) Обхождаме всички разпределения на 12 QH в 3 периода
-        for L1 in range(1, 12):          # поне 1 QH
-            for L2 in range(1, 12):
-                L3 = 12 - L1 - L2
-                if L3 < 1:
-                    continue
+            st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
-                # 4) За дадени L1, L2, L3 търсим всички възможни позиции без застъпване
-                for i1 in range(0, n - L1 + 1):
-                    for i2 in range(i1 + L1, n - L2 + 1):
-                        for i3 in range(i2 + L2, n - L3 + 1):
-                            s1 = segment_sum(i1, L1)
-                            s2 = segment_sum(i2, L2)
-                            s3 = segment_sum(i3, L3)
-                            total_sum = s1 + s2 + s3  # максимизираме сумата → и средната ще е макс
-
-                            if best_total_sum is None or total_sum > best_total_sum:
-                                best_total_sum = total_sum
-                                best_choice = (
+    except Exception as e:
+        st.error(f"⚠️ Грешка: {e}")
