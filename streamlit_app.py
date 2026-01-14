@@ -6,7 +6,7 @@ st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
 st.title("📊 Резултати по блокове")
 st.write("Най-скъпите 3 часа, групирани по периоди.")
 
-uploaded_files = st.file_uploader("Избери един или повече файлове", type=['csv', 'txt'], accept_multiple_files=True)
+uploaded_file = st.file_uploader("Избери файл", type=['csv', 'txt'])
 
 if uploaded_file is not None:
     try:
