@@ -1,100 +1,41 @@
 import streamlit as st
 import pandas as pd
-from itertools import combinations
 
-st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
-st.title("📊 Оптимизатор – Топ 3 периода (общо 3 часа)")
+st.set_page_config(page_title="Максимален Анализатор", layout="centered")
 
-uploaded_file = st.file_uploader("Качи DAM CSV файл", type=['csv', 'txt'])
+st.title("🚀 Топ 12 Интервала (Хронологично)")
+st.write("Приложението избира 12-те най-скъпи момента и ги подрежда по време.")
 
-def qh_to_time(qh):
-    minutes = (qh - 1) * 15
-    h = minutes // 60
-    m = minutes % 60
-    return f"{h:02d}:{m:02d}"
+uploaded_file = st.file_uploader("Избери файл", type=['csv', 'txt'])
 
-def interval_to_time(start, end):
-    return qh_to_time(start), qh_to_time(end + 1)
-
-def load_prices(uploaded_file):
-    df = pd.read_csv(uploaded_file, sep=";", skiprows=9)
-    df.columns = [c.strip() for c in df.columns]
-
-    df["Цена (EUR/MWh)"] = (
-        df["Цена (EUR/MWh)"]
-        .astype(str)
-        .str.replace(",", ".")
-        .astype(float)
-    )
-
-    df["QH"] = df["Продукт"].str.replace("QH", "").astype(int)
-    df = df[["QH", "Период на доставка", "Цена (EUR/MWh)"]]
-    df = df.set_index("QH")
-    return df
-
-def all_intervals(prices):
-    intervals = []
-    qhs = sorted(prices.index)
-
-    for start in qhs:
-        for end in qhs:
-            if end >= start:
-                interval = list(range(start, end + 1))
-                avg_price = prices.loc[interval, "Цена (EUR/MWh)"].mean()
-                intervals.append((start, end, len(interval), avg_price))
-    return intervals
-
-def find_best_three(intervals):
-    best = None
-
-    for a, b, c in combinations(intervals, 3):
-        total_len = a[2] + b[2] + c[2]
-        if total_len != 12:
-            continue
-
-        # Проверка за застъпване
-        if not (a[1] < b[0] or b[1] < a[0]):
-            continue
-        if not (a[1] < c[0] or c[1] < a[0]):
-            continue
-        if not (b[1] < c[0] or c[1] < b[0]):
-            continue
-
-        total_avg = (
-            a[3] * a[2] +
-            b[3] * b[2] +
-            c[3] * c[2]
-        ) / 12
-
-        if best is None or total_avg > best[0]:
-            best = (total_avg, a, b, c)
-
-    return best
-
-if uploaded_file:
+if uploaded_file is not None:
     try:
-        df = load_prices(uploaded_file)
-        intervals = all_intervals(df)
-        best = find_best_three(intervals)
+        df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
+        df.columns = [c.strip() for c in df.columns]
+        
+        if df['Цена (EUR/MWh)'].dtype == object:
+            df['Цена (EUR/MWh)'] = df['Цена (EUR/MWh)'].str.replace(',', '.').astype(float)
 
-        if best is None:
-            st.error("Не е намерена комбинация от 3 периода с общо 12 QH.")
-            st.stop()
+        # 1. Намираме 12-те най-скъпи интервала
+        # Използваме nlargest, за да вземем най-високите стойности
+        top_12 = df.nlargest(12, 'Цена (EUR/MWh)')
 
-        total_avg, a, b, c = best
+        # 2. ТУК Е ПРОМЯНАТА: Подреждаме ги по оригиналния ред (време)
+        top_12_chronological = top_12.sort_index()
 
-        st.subheader(f"📈 Обща средна цена: **{total_avg:.2f} EUR/MWh**")
+        st.subheader("📅 Твоят график за деня:")
+        
+        for index, row in top_12_chronological.iterrows():
+            # Използваме info за по-добра видимост
+            st.info(f"🕒 **{row['Период на доставка']}** — Цена: **{row['Цена (EUR/MWh)']} EUR**")
 
-        for idx, interval in enumerate([a, b, c], start=1):
-            start, end, length, avg = interval
-            start_time, end_time = interval_to_time(start, end)
-
-            st.warning(
-                f"🔹 Период {idx}: **{start_time} – {end_time}** "
-                f"({length} QH) | Средна: **{avg:.2f} EUR/MWh**"
-            )
-
-        st.line_chart(df["Цена (EUR/MWh)"])
+        # 3. Изчисляваме общата средна цена
+        max_avg = top_12['Цена (EUR/MWh)'].mean()
+        st.success(f"📈 СРЕДНА ЦЕНА (от избраните 12): **{max_avg:.2f} EUR/MWh**")
+        
+        # Графика за целия ден
+        st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
     except Exception as e:
-        st.error(f"Грешка: {e}")
+        st.error(f"Грешка при четене: {e}")
+        
