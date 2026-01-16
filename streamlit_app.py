@@ -15,20 +15,16 @@ uploaded_file = st.file_uploader(
     accept_multiple_files=False
 )
 
-# ---------------------------------------------------------
-# НОВИЯТ АЛГОРИТЪМ ЗА 1, 2 ИЛИ 3 ПЕРИОДА (ОБЩО 11 QH)
-# ---------------------------------------------------------
-
 TOTAL_QH = 11
 
 def generate_length_combinations(total):
-    combos = [[total]]  # 1 период
+    combos = [[total]]
     for a in range(1, total):
-        combos.append([a, total - a])  # 2 периода
+        combos.append([a, total - a])
     for a in range(1, total - 1):
         for b in range(1, total - a):
             c = total - a - b
-            combos.append([a, b, c])  # 3 периода
+            combos.append([a, b, c])
     return combos
 
 def best_positions_for_lengths(prices, lengths):
@@ -83,10 +79,6 @@ def format_periods(periods, df):
         output.append(f"Период {i}: {start_time} – {end_time}")
     return "\n".join(output)
 
-# ---------------------------------------------------------
-# ЧЕТЕНЕ НА ФАЙЛА
-# ---------------------------------------------------------
-
 if uploaded_file is not None:
     try:
         ext = os.path.splitext(uploaded_file.name)[1].lower()
@@ -123,8 +115,6 @@ if uploaded_file is not None:
         st.text(format_periods(periods, df))
         st.success(f"Обща средна цена: {avg_price:.2f} EUR/MWh")
 
-        st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
-
         # ---------------------------------------------------------
         # ТАБЛИЦА: ПРОДАВАЙ / НЕ ПРОДАВАЙ + СРЕДНА ЦЕНА + ПЕРИОД
         # ---------------------------------------------------------
@@ -156,13 +146,19 @@ if uploaded_file is not None:
             avg_block = df.loc[start_idx:len(prices) - 1, "Цена (EUR/MWh)"].mean()
             table_rows.append((start_time, end_time, current_status, avg_block))
 
-        # Добавяме номерация от 1 до N-1, последният ред остава без номер
-        period_numbers = [str(i + 1) for i in range(len(table_rows) - 1)] + [""]
+        # Номерация на периодите (всички редове имат номер)
+        period_numbers = [str(i + 1) for i in range(len(table_rows))]
+
         table_df = pd.DataFrame(table_rows, columns=["Start Time", "End Time", "Действие", "Средна цена"])
         table_df.insert(0, "Период", period_numbers)
 
         st.subheader("📋 График за действие")
         st.dataframe(table_df, use_container_width=True)
+
+        # ---------------------------------------------------------
+        # ГРАФИКАТА ОТИВА НАЙ-ОТДОЛУ
+        # ---------------------------------------------------------
+        st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
     except Exception as e:
         st.error(f"Грешка: {e}")
