@@ -19,31 +19,21 @@ uploaded_file = st.file_uploader(
 # НОВИЯТ АЛГОРИТЪМ ЗА 1, 2 ИЛИ 3 ПЕРИОДА (ОБЩО 11 QH)
 # ---------------------------------------------------------
 
-TOTAL_QH = 11  # 2 часа и 45 минути
+TOTAL_QH = 11
 
 def generate_length_combinations(total):
-    combos = []
-
-    # 1 период
-    combos.append([total])
-
-    # 2 периода
+    combos = [[total]]  # 1 период
     for a in range(1, total):
-        combos.append([a, total - a])
-
-    # 3 периода
+        combos.append([a, total - a])  # 2 периода
     for a in range(1, total - 1):
         for b in range(1, total - a):
             c = total - a - b
-            combos.append([a, b, c])
-
+            combos.append([a, b, c])  # 3 периода
     return combos
-
 
 def best_positions_for_lengths(prices, lengths):
     n = len(prices)
     k = len(lengths)
-
     best_avg = -1
     best_periods = None
 
@@ -72,11 +62,9 @@ def best_positions_for_lengths(prices, lengths):
 
     return best_periods, best_avg
 
-
 def find_best_periods(prices):
     best_avg = -1
     best_periods = None
-
     combos = generate_length_combinations(TOTAL_QH)
 
     for lengths in combos:
@@ -87,7 +75,6 @@ def find_best_periods(prices):
 
     return best_periods, best_avg
 
-
 def format_periods(periods, df):
     output = []
     for i, (s, e) in enumerate(periods, start=1):
@@ -95,7 +82,6 @@ def format_periods(periods, df):
         end_time = df.loc[e - 1, "Период на доставка"].split("-")[1].strip()
         output.append(f"Период {i}: {start_time} – {end_time}")
     return "\n".join(output)
-
 
 # ---------------------------------------------------------
 # ЧЕТЕНЕ НА ФАЙЛА
@@ -116,7 +102,6 @@ if uploaded_file is not None:
             st.stop()
 
         df.columns = [c.strip() for c in df.columns]
-
         df = df[df['Продукт'].astype(str).str.startswith('QH')].copy()
 
         if df['Цена (EUR/MWh)'].dtype == object:
@@ -132,9 +117,6 @@ if uploaded_file is not None:
 
         prices = df['Цена (EUR/MWh)'].to_numpy()
 
-        # ---------------------------------------------------------
-        # ТУК СЕ ИЗВИКВА НОВИЯТ АЛГОРИТЪМ
-        # ---------------------------------------------------------
         periods, avg_price = find_best_periods(prices)
 
         st.subheader("⏳ Най-добър вариант:")
@@ -144,7 +126,7 @@ if uploaded_file is not None:
         st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
         # ---------------------------------------------------------
-        # ТАБЛИЦА: ПРОДАВАЙ / НЕ ПРОДАВАЙ + СРЕДНА ЦЕНА
+        # ТАБЛИЦА: ПРОДАВАЙ / НЕ ПРОДАВАЙ + СРЕДНА ЦЕНА + ПЕРИОД
         # ---------------------------------------------------------
 
         selected_qh = set()
@@ -174,8 +156,12 @@ if uploaded_file is not None:
             avg_block = df.loc[start_idx:len(prices) - 1, "Цена (EUR/MWh)"].mean()
             table_rows.append((start_time, end_time, current_status, avg_block))
 
-        st.subheader("📋 График за действие")
+        # Добавяме номерация от 1 до N-1, последният ред остава без номер
+        period_numbers = [str(i + 1) for i in range(len(table_rows) - 1)] + [""]
         table_df = pd.DataFrame(table_rows, columns=["Start Time", "End Time", "Действие", "Средна цена"])
+        table_df.insert(0, "Период", period_numbers)
+
+        st.subheader("📋 График за действие")
         st.dataframe(table_df, use_container_width=True)
 
     except Exception as e:
