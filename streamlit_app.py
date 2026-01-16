@@ -121,7 +121,6 @@ if uploaded_file is not None:
         st.text(format_periods(periods, df))
         st.success(f"Обща средна цена: {avg_price:.2f} EUR/MWh")
 
-        # Таблица: Продавай / Не продавай (с +1 час)
         selected_qh = set()
         for s, e in periods:
             selected_qh.update(range(s, e))
@@ -166,12 +165,12 @@ if uploaded_file is not None:
                 return ["background-color: #d4f8d4; font-weight: bold;"] * len(row)
             return [""] * len(row)
 
+        table_df.index = [""] * len(table_df)
         styled_df = table_df.style.apply(highlight_sell_row, axis=1)
 
         st.subheader("📋 График за действие")
-        st.dataframe(styled_df.set_index(pd.Index([""] * len(table_df))), use_container_width=True)
+        st.dataframe(styled_df, use_container_width=True)
 
-        # Графиката най-отдолу
         st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
     except Exception as e:
