@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import itertools
 import os
 
 st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
@@ -13,11 +15,96 @@ uploaded_file = st.file_uploader(
     accept_multiple_files=False
 )
 
+# ---------------------------------------------------------
+# НОВИЯТ АЛГОРИТЪМ ЗА 1, 2 ИЛИ 3 ПЕРИОДА (ОБЩО 11 QH)
+# ---------------------------------------------------------
+
+TOTAL_QH = 11  # 2 часа и 45 минути
+
+def generate_length_combinations(total):
+    combos = []
+
+    # 1 период
+    combos.append([total])
+
+    # 2 периода
+    for a in range(1, total):
+        combos.append([a, total - a])
+
+    # 3 периода
+    for a in range(1, total - 1):
+        for b in range(1, total - a):
+            c = total - a - b
+            combos.append([a, b, c])
+
+    return combos
+
+
+def best_positions_for_lengths(prices, lengths):
+    n = len(prices)
+    k = len(lengths)
+
+    best_avg = -1
+    best_periods = None
+
+    for starts in itertools.combinations(range(n), k):
+        valid = True
+        periods = []
+        last_end = -1
+
+        for start, length in zip(starts, lengths):
+            end = start + length
+            if start <= last_end or end > n:
+                valid = False
+                break
+            periods.append((start, end))
+            last_end = end
+
+        if not valid:
+            continue
+
+        total_sum = sum(np.sum(prices[s:e]) for s, e in periods)
+        avg = total_sum / TOTAL_QH
+
+        if avg > best_avg:
+            best_avg = avg
+            best_periods = periods
+
+    return best_periods, best_avg
+
+
+def find_best_periods(prices):
+    best_avg = -1
+    best_periods = None
+
+    combos = generate_length_combinations(TOTAL_QH)
+
+    for lengths in combos:
+        periods, avg = best_positions_for_lengths(prices, lengths)
+        if periods is not None and avg > best_avg:
+            best_avg = avg
+            best_periods = periods
+
+    return best_periods, best_avg
+
+
+def format_periods(periods, df):
+    output = []
+    for i, (s, e) in enumerate(periods, start=1):
+        start_time = df.loc[s, "Период на доставка"].split("-")[0].strip()
+        end_time = df.loc[e - 1, "Период на доставка"].split("-")[1].strip()
+        output.append(f"Период {i}: {start_time} – {end_time}")
+    return "\n".join(output)
+
+
+# ---------------------------------------------------------
+# ЧЕТЕНЕ НА ФАЙЛА
+# ---------------------------------------------------------
+
 if uploaded_file is not None:
     try:
         ext = os.path.splitext(uploaded_file.name)[1].lower()
 
-        # Четене според типа файл
         if ext in ['.csv', '.txt']:
             df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
         elif ext == '.xls':
@@ -28,13 +115,10 @@ if uploaded_file is not None:
             st.error("Неподдържан файлов формат.")
             st.stop()
 
-        # Почистване на имената на колоните
         df.columns = [c.strip() for c in df.columns]
 
-        # Вземаме само QH редовете
         df = df[df['Продукт'].astype(str).str.startswith('QH')].copy()
 
-        # Нормализация на цената
         if df['Цена (EUR/MWh)'].dtype == object:
             df['Цена (EUR/MWh)'] = (
                 df['Цена (EUR/MWh)']
@@ -43,74 +127,56 @@ if uploaded_file is not None:
                 .astype(float)
             )
 
-        # Извличане и подреждане по QH
         df['QH'] = df['Продукт'].str.extract(r'QH\s*(\d+)').astype(int)
         df = df.sort_values('QH').reset_index(drop=True)
 
-        prices = df['Цена (EUR/MWh)'].tolist()
-        n = len(prices)
+        prices = df['Цена (EUR/MWh)'].to_numpy()
 
-        # Префиксни суми
-        prefix = [0.0] * (n + 1)
-        for i in range(n):
-            prefix[i + 1] = prefix[i] + prices[i]
+        # ---------------------------------------------------------
+        # ТУК СЕ ИЗВИКВА НОВИЯТ АЛГОРИТЪМ
+        # ---------------------------------------------------------
+        periods, avg_price = find_best_periods(prices)
 
-        def segment_sum(start_idx, length):
-            return prefix[start_idx + length] - prefix[start_idx]
+        st.subheader("⏳ Най-добър вариант:")
+        st.text(format_periods(periods, df))
+        st.success(f"Обща средна цена: {avg_price:.2f} EUR/MWh")
 
-        best_total_sum = None
-        best_choice = None
-        TOTAL_QH = 11  # 2 часа и 45 минути
+        st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
-        # Обхождаме всички разпределения на 11 QH в 3 периода
-        for L1 in range(1, TOTAL_QH):
-            for L2 in range(1, TOTAL_QH):
-                L3 = TOTAL_QH - L1 - L2
-                if L3 < 1:
-                    continue
+        # ---------------------------------------------------------
+        # ТАБЛИЦА: ПРОДАВАЙ / НЕ ПРОДАВАЙ + СРЕДНА ЦЕНА
+        # ---------------------------------------------------------
 
-                for i1 in range(0, n - L1 + 1):
-                    for i2 in range(i1 + L1, n - L2 + 1):
-                        for i3 in range(i2 + L2, n - L3 + 1):
-                            s1 = segment_sum(i1, L1)
-                            s2 = segment_sum(i2, L2)
-                            s3 = segment_sum(i3, L3)
-                            total_sum = s1 + s2 + s3
+        selected_qh = set()
+        for s, e in periods:
+            selected_qh.update(range(s, e))
 
-                            if best_total_sum is None or total_sum > best_total_sum:
-                                best_total_sum = total_sum
-                                best_choice = ((i1, L1), (i2, L2), (i3, L3))
+        table_rows = []
+        current_status = None
+        start_idx = None
 
-        if best_choice is None:
-            st.error("Не е намерена комбинация от 3 периода с общо 11 QH.")
-        else:
-            (i1, L1), (i2, L2), (i3, L3) = best_choice
+        for i in range(len(prices)):
+            status = "Продавай" if i in selected_qh else "Не продавай"
 
-            blocks = []
-            for (start_idx, length) in [(i1, L1), (i2, L2), (i3, L3)]:
-                end_idx = start_idx + length - 1
+            if status != current_status:
+                if current_status is not None:
+                    start_time = df.loc[start_idx, "Период на доставка"].split("-")[0].strip()
+                    end_time = df.loc[i - 1, "Период на доставка"].split("-")[1].strip()
+                    avg_block = df.loc[start_idx:i - 1, "Цена (EUR/MWh)"].mean()
+                    table_rows.append((start_time, end_time, current_status, avg_block))
 
-                start_time = df.loc[start_idx, 'Период на доставка'].split('-')[0].strip()
-                end_time = df.loc[end_idx, 'Период на доставка'].split('-')[1].strip()
+                current_status = status
+                start_idx = i
 
-                avg_price = df.loc[start_idx:end_idx, 'Цена (EUR/MWh)'].mean()
-                blocks.append((start_time, end_time, length, avg_price))
+        if current_status is not None:
+            start_time = df.loc[start_idx, "Период на доставка"].split("-")[0].strip()
+            end_time = df.loc[len(prices) - 1, "Период на доставка"].split("-")[1].strip()
+            avg_block = df.loc[start_idx:len(prices) - 1, "Цена (EUR/MWh)"].mean()
+            table_rows.append((start_time, end_time, current_status, avg_block))
 
-            total_avg = best_total_sum / TOTAL_QH
-
-            st.subheader("⏳ Периоди за работа:")
-
-            for idx, (b_start, b_end, qh_len, b_avg) in enumerate(blocks, start=1):
-                msg = (
-                    f"Период {idx}: 🕒 {b_start} - {b_end} "
-                    f"({qh_len} QH) | Средна цена: {b_avg:.2f} EUR/MWh"
-                )
-                st.warning(msg)
-
-            result_msg = f"ОБЩА СРЕДНА ЦЕНА (2ч 45м, 11 QH): {total_avg:.2f} EUR/MWh"
-            st.success(result_msg)
-
-            st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
+        st.subheader("📋 График за действие")
+        table_df = pd.DataFrame(table_rows, columns=["Start Time", "End Time", "Действие", "Средна цена"])
+        st.dataframe(table_df, use_container_width=True)
 
     except Exception as e:
         st.error(f"Грешка: {e}")
