@@ -38,6 +38,21 @@ def add_one_hour(time_str):
     t += timedelta(hours=1)
     return t.strftime("%H:%M")
 
+def duration_str(start, end):
+    t1 = datetime.strptime(start, "%H:%M")
+    t2 = datetime.strptime(end, "%H:%M")
+    diff = t2 - t1
+    minutes = diff.seconds // 60
+    h = minutes // 60
+    m = minutes % 60
+
+    if h > 0 and m > 0:
+        return f"{h}ч {m}м"
+    elif h > 0:
+        return f"{h}ч"
+    else:
+        return f"{m}м"
+
 def generate_length_combinations(total):
     combos = [[total]]
     for a in range(1, total):
@@ -97,7 +112,8 @@ def format_periods(periods, df):
     for i, (s, e) in enumerate(periods, start=1):
         start_time = df.loc[s, "Период на доставка"].split("-")[0].strip()
         end_time = df.loc[e - 1, "Период на доставка"].split("-")[1].strip()
-        output.append(f"Период {i}: {start_time} – {end_time}")
+        dur = duration_str(start_time, end_time)
+        output.append(f"Период {i}: {start_time} – {end_time} ({dur})")
     return "\n".join(output)
 
 # ---------------------------------------------------------
