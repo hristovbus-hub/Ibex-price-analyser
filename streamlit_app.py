@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import itertools
 import os
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
 
@@ -17,6 +18,17 @@ uploaded_file = st.file_uploader(
 
 TOTAL_QH = 11
 
+# ---------------------------------------------------------
+# Добавяме функция за +1 час (CET → EET)
+# ---------------------------------------------------------
+def add_one_hour(time_str):
+    t = datetime.strptime(time_str, "%H:%M")
+    t += timedelta(hours=1)
+    return t.strftime("%H:%M")
+
+# ---------------------------------------------------------
+# Генериране на комбинации за 1, 2 или 3 периода
+# ---------------------------------------------------------
 def generate_length_combinations(total):
     combos = [[total]]
     for a in range(1, total):
@@ -79,6 +91,9 @@ def format_periods(periods, df):
         output.append(f"Период {i}: {start_time} – {end_time}")
     return "\n".join(output)
 
+# ---------------------------------------------------------
+# Четене на файла
+# ---------------------------------------------------------
 if uploaded_file is not None:
     try:
         ext = os.path.splitext(uploaded_file.name)[1].lower()
@@ -116,9 +131,8 @@ if uploaded_file is not None:
         st.success(f"Обща средна цена: {avg_price:.2f} EUR/MWh")
 
         # ---------------------------------------------------------
-        # ТАБЛИЦА: ПРОДАВАЙ / НЕ ПРОДАВАЙ + СРЕДНА ЦЕНА + ПЕРИОД
+        # Таблица: Продавай / Не продавай (с +1 час)
         # ---------------------------------------------------------
-
         selected_qh = set()
         for s, e in periods:
             selected_qh.update(range(s, e))
@@ -132,8 +146,12 @@ if uploaded_file is not None:
 
             if status != current_status:
                 if current_status is not None:
-                    start_time = df.loc[start_idx, "Период на доставка"].split("-")[0].strip()
-                    end_time = df.loc[i - 1, "Период на доставка"].split("-")[1].strip()
+                    raw_start = df.loc[start_idx, "Период на доставка"].split("-")[0].strip()
+                    raw_end = df.loc[i - 1, "Период на доставка"].split("-")[1].strip()
+
+                    start_time = add_one_hour(raw_start)
+                    end_time = add_one_hour(raw_end)
+
                     avg_block = df.loc[start_idx:i - 1, "Цена (EUR/MWh)"].mean()
                     table_rows.append((start_time, end_time, current_status, avg_block))
 
@@ -141,12 +159,16 @@ if uploaded_file is not None:
                 start_idx = i
 
         if current_status is not None:
-            start_time = df.loc[start_idx, "Период на доставка"].split("-")[0].strip()
-            end_time = df.loc[len(prices) - 1, "Период на доставка"].split("-")[1].strip()
+            raw_start = df.loc[start_idx, "Период на доставка"].split("-")[0].strip()
+            raw_end = df.loc[len(prices) - 1, "Период на доставка"].split("-")[1].strip()
+
+            start_time = add_one_hour(raw_start)
+            end_time = add_one_hour(raw_end)
+
             avg_block = df.loc[start_idx:len(prices) - 1, "Цена (EUR/MWh)"].mean()
             table_rows.append((start_time, end_time, current_status, avg_block))
 
-        # Номерация на периодите (всички редове имат номер)
+        # Номерация на периодите
         period_numbers = [str(i + 1) for i in range(len(table_rows))]
 
         table_df = pd.DataFrame(table_rows, columns=["Start Time", "End Time", "Действие", "Средна цена"])
@@ -156,7 +178,7 @@ if uploaded_file is not None:
         st.dataframe(table_df, use_container_width=True)
 
         # ---------------------------------------------------------
-        # ГРАФИКАТА ОТИВА НАЙ-ОТДОЛУ
+        # Графиката най-отдолу
         # ---------------------------------------------------------
         st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
 
