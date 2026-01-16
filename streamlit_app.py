@@ -19,7 +19,7 @@ uploaded_file = st.file_uploader(
 TOTAL_QH = 11
 
 # ---------------------------------------------------------
-# Добавяме функция за +1 час (CET → EET)
+# CET → EET (+1 час)
 # ---------------------------------------------------------
 def add_one_hour(time_str):
     t = datetime.strptime(time_str, "%H:%M")
@@ -174,8 +174,18 @@ if uploaded_file is not None:
         table_df = pd.DataFrame(table_rows, columns=["Start Time", "End Time", "Действие", "Средна цена"])
         table_df.insert(0, "Период", period_numbers)
 
+        # ---------------------------------------------------------
+        # Оцветяване на целия ред, ако е "Продавай"
+        # ---------------------------------------------------------
+        def highlight_sell_row(row):
+            if row["Действие"] == "Продавай":
+                return ["background-color: #d4f8d4; font-weight: bold;"] * len(row)
+            return [""] * len(row)
+
+        styled_df = table_df.style.apply(highlight_sell_row, axis=1)
+
         st.subheader("📋 График за действие")
-        st.dataframe(table_df, use_container_width=True)
+        st.dataframe(styled_df, use_container_width=True)
 
         # ---------------------------------------------------------
         # Графиката най-отдолу
