@@ -1,66 +1,67 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
+st.set_page_config(page_title="IBEX Търговски Помощник", layout="centered")
 
-st.title("📊 Професионален Анализ")
+st.title("💰 Стратегия за Продажба")
 
-# Настройки от потребителя
-qh_count = st.slider("Обща дължина (в QH):", min_value=1, max_value=96, value=12)
-st.info(f"Търсим най-добрите {qh_count} интервала (общо {qh_count*15} минути)")
+# 1. Настройки на стратегията
+col1, col2 = st.columns(2)
+with col1:
+    total_qh = st.slider("Общо QH за деня:", 1, 20, 12)
+with col2:
+    num_periods = st.radio("Брой периоди на продажба:", [1, 2, 3], index=2)
 
-uploaded_file = st.file_uploader("Избери файл", type=['csv', 'txt'])
+uploaded_file = st.file_uploader("Зареди файл с цени", type=['csv', 'txt'])
 
 if uploaded_file is not None:
     try:
-        # Четем файла внимателно
         df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
         df.columns = [c.strip() for c in df.columns]
+        df['Цена (EUR/MWh)'] = df['Цена (EUR/MWh)'].astype(str).str.replace(',', '.').astype(float)
+
+        # Намираме най-добрите интервали
+        top_indices = df.nlargest(total_qh, 'Цена (EUR/MWh)').index.sort_values()
         
-        # Пречистване на цената - решаваме проблема 'int' and 'str'
-        if 'Цена (EUR/MWh)' in df.columns:
-            df['Цена (EUR/MWh)'] = df['Цена (EUR/MWh)'].astype(str).str.replace(',', '.')
-            df['Цена (EUR/MWh)'] = pd.to_numeric(df['Цена (EUR/MWh)'], errors='coerce')
-            df = df.dropna(subset=['Цена (EUR/MWh)']) # Махаме празни редове
-
-        # 1. Намираме най-високите интервали според избора от слайдера
-        top_n = df.nlargest(qh_count, 'Цена (EUR/MWh)').sort_index()
-
-        # 2. Групиране в логически блокове
+        # Групиране в блокове
         blocks = []
-        if not top_n.empty:
-            start_idx = top_n.index[0]
+        if len(top_indices) > 0:
+            start_idx = top_indices[0]
             last_idx = start_idx
-            
-            for i in range(1, len(top_n)):
-                current_idx = top_n.index[i]
-                if current_idx == last_idx + 1:
-                    last_idx = current_idx
+            for i in range(1, len(top_indices)):
+                if top_indices[i] == last_idx + 1:
+                    last_idx = top_indices[i]
                 else:
-                    s_time = str(df.loc[start_idx, 'Период на доставка']).split('-')[0]
-                    e_time = str(df.loc[last_idx, 'Период на доставка']).split('-')[1]
-                    avg_p = df.loc[start_idx:last_idx, 'Цена (EUR/MWh)'].mean()
-                    blocks.append((s_time, e_time, avg_p))
-                    start_idx = current_idx
-                    last_idx = current_idx
-            
-            # Последен блок
-            s_time = str(df.loc[start_idx, 'Период на доставка']).split('-')[0]
-            e_time = str(df.loc[last_idx, 'Период на доставка']).split('-')[1]
-            avg_p = df.loc[start_idx:last_idx, 'Цена (EUR/MWh)'].mean()
-            blocks.append((s_time, e_time, avg_p))
+                    blocks.append((start_idx, last_idx))
+                    start_idx = top_indices[i]
+                    last_idx = start_idx
+            blocks.append((start_idx, last_idx))
 
-        # 3. Показване на резултатите
-        st.subheader("⏳ Резултати по периоди:")
-        for b_start, b_end, b_avg in blocks:
-            st.warning(f"🕒 **{b_start} - {b_end}** | Средна цена: **{b_avg:.2f} EUR**")
+        # Ограничаваме до избрания брой периоди (най-скъпите)
+        blocks = sorted(blocks, key=lambda x: df.loc[x[0]:x[1], 'Цена (EUR/MWh)'].mean(), reverse=True)[:num_periods]
+        blocks.sort(key=lambda x: x[0]) # Подреждаме ги хронологично
 
-        total_avg = top_n['Цена (EUR/MWh)'].mean()
-        st.success(f"📈 МАКСИМАЛНА СРЕДНА ЦЕНА: **{total_avg:.2f} EUR**")
+        # 2. Показване на графика и инструкции
+        st.subheader("📅 План за деня:")
         
-        # Графика
-        st.line_chart(df.set_index('Период на доставка')['Цена (EUR/MWh)'])
+        for i in range(len(blocks)):
+            b_start, b_end = blocks[i]
+            start_time = df.loc[b_start, 'Период на доставка'].split('-')[0]
+            end_time = df.loc[b_end, 'Период на доставка'].split('-')[1]
+            avg_p = df.loc[b_start:b_end, 'Цена (EUR/MWh)'].mean()
+
+            # Инструкция ПРОДАВАЙ
+            st.error(f"🔴 **ПРОДАВАЙ: {start_time} - {end_time}** (Средна цена: {avg_p:.2f} EUR)")
+
+            # Инструкция НЕ ПРОДАВАЙ (ако има празнина до следващия блок)
+            if i < len(blocks) - 1:
+                next_start_idx = blocks[i+1][0]
+                pause_start = df.loc[b_end, 'Период на доставка'].split('-')[1]
+                pause_end = df.loc[next_start_idx, 'Период на доставка'].split('-')[0]
+                st.success(f"🟢 **НЕ ПРОДАВАЙ: {pause_start} - {pause_end}**")
+
+        total_avg = sum(df.loc[b[0]:b[1], 'Цена (EUR/MWh)'].mean() for b in blocks) / len(blocks)
+        st.metric("Средна цена на продажба", f"{total_avg:.2f} EUR")
 
     except Exception as e:
-        st.error(f"Възникна грешка при обработката: {e}")
-            
+        st.error(f"Грешка: {e}")
