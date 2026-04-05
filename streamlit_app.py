@@ -16,14 +16,15 @@ uploaded_file = st.file_uploader("Зареди файл с цени", type=['csv
 
 if uploaded_file is not None:
     try:
+        # Четем файла внимателно
         df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
         df.columns = [c.strip() for c in df.columns]
         df['Цена (EUR/MWh)'] = df['Цена (EUR/MWh)'].astype(str).str.replace(',', '.').astype(float)
 
-        # Намираме най-добрите интервали
+        # 2. Логика за намиране на най-добрите интервали
         top_indices = df.nlargest(total_qh, 'Цена (EUR/MWh)').index.sort_values()
         
-        # Групиране в блокове
+        # Групиране в логически блокове
         blocks = []
         if len(top_indices) > 0:
             start_idx = top_indices[0]
@@ -37,31 +38,36 @@ if uploaded_file is not None:
                     last_idx = start_idx
             blocks.append((start_idx, last_idx))
 
-        # Ограничаваме до избрания брой периоди (най-скъпите)
+        # Ограничаваме до избрания брой периоди (num_periods)
         blocks = sorted(blocks, key=lambda x: df.loc[x[0]:x[1], 'Цена (EUR/MWh)'].mean(), reverse=True)[:num_periods]
         blocks.sort(key=lambda x: x[0]) # Подреждаме ги хронологично
 
-        # 2. Показване на графика и инструкции
+        # 3. ПОКАЗВАНЕ С ПРАВИЛНИ ЦВЕТОВЕ
         st.subheader("📅 План за деня:")
         
         for i in range(len(blocks)):
             b_start, b_end = blocks[i]
+            # Вземаме само началото и края на периода за по-чисто показване
             start_time = df.loc[b_start, 'Период на доставка'].split('-')[0]
             end_time = df.loc[b_end, 'Период на доставка'].split('-')[1]
             avg_p = df.loc[b_start:b_end, 'Цена (EUR/MWh)'].mean()
 
-            # Инструкция ПРОДАВАЙ
-            st.error(f"🔴 **ПРОДАВАЙ: {start_time} - {end_time}** (Средна цена: {avg_p:.2f} EUR)")
+            # Инструкция ПРОДАВАЙ - ТУК Е ЗЕЛЕНОТО (🟢)
+            st.success(f"🟢 **ПРОДАВАЙ: {start_time} - {end_time}** (Средна цена: {avg_p:.2f} EUR)")
 
-            # Инструкция НЕ ПРОДАВАЙ (ако има празнина до следващия блок)
+            # Инструкция НЕ ПРОДАВАЙ - ТУК Е ЧЕРВЕНОТО (🔴)
             if i < len(blocks) - 1:
                 next_start_idx = blocks[i+1][0]
                 pause_start = df.loc[b_end, 'Период на доставка'].split('-')[1]
                 pause_end = df.loc[next_start_idx, 'Период на доставка'].split('-')[0]
-                st.success(f"🟢 **НЕ ПРОДАВАЙ: {pause_start} - {pause_end}**")
+                # Само ако има реална празнина между блоковете
+                if pause_start != pause_end:
+                    st.error(f"🔴 **НЕ ПРОДАВАЙ: {pause_start} - {pause_end}**")
 
-        total_avg = sum(df.loc[b[0]:b[1], 'Цена (EUR/MWh)'].mean() for b in blocks) / len(blocks)
-        st.metric("Средна цена на продажба", f"{total_avg:.2f} EUR")
+        # Показател за общата средна цена
+        if blocks:
+            total_avg = sum(df.loc[b[0]:b[1], 'Цена (EUR/MWh)'].mean() for b in blocks) / len(blocks)
+            st.metric("Средна цена на продажба за избраните QH", f"{total_avg:.2f} EUR")
 
     except Exception as e:
-        st.error(f"Грешка: {e}")
+        st.error(f"Грешка при обработката на файла: {e}")
