@@ -1,73 +1,86 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
-st.set_page_config(page_title="IBEX Търговски Помощник", layout="centered")
+st.set_page_config(page_title="IBEX Оптимизатор", layout="centered")
 
-st.title("💰 Стратегия за Продажба")
+st.title("💰 Смарт Стратегия")
 
-# 1. Настройки на стратегията
+# 1. Настройки
 col1, col2 = st.columns(2)
 with col1:
-    total_qh = st.slider("Общо QH за деня:", 1, 20, 12)
+    total_needed_qh = st.slider("Общо QH за работа:", 1, 96, 12)
 with col2:
-    num_periods = st.radio("Брой периоди на продажба:", [1, 2, 3], index=2)
+    num_blocks = st.radio("Раздели на брой блокове:", [1, 2, 3], index=0)
 
-uploaded_file = st.file_uploader("Зареди файл с цени", type=['csv', 'txt'])
+uploaded_file = st.file_uploader("Зареди файл", type=['csv', 'txt'])
 
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file, sep=';', skiprows=9)
         df.columns = [c.strip() for c in df.columns]
         df['Цена (EUR/MWh)'] = df['Цена (EUR/MWh)'].astype(str).str.replace(',', '.').astype(float)
+        prices = df['Цена (EUR/MWh)'].values
 
-        # Намираме най-добрите интервали
-        top_indices = df.nlargest(total_qh, 'Цена (EUR/MWh)').index.sort_values()
+        # 2. Алгоритъм за намиране на N най-добри блока с фиксирана обща дължина
+        best_avg = -1
+        best_combination = []
+
+        if num_blocks == 1:
+            # Търсим един непрекъснат блок с дължина total_needed_qh
+            for i in range(len(prices) - total_needed_qh + 1):
+                current_avg = np.mean(prices[i : i + total_needed_qh])
+                if current_avg > best_avg:
+                    best_avg = current_avg
+                    best_combination = [(i, i + total_needed_qh - 1)]
+
+        elif num_blocks == 2:
+            # Разделяме total_needed_qh на две части (len1 + len2 = total_needed_qh)
+            for len1 in range(1, total_needed_qh):
+                len2 = total_needed_qh - len1
+                for i in range(len(prices) - len1 - len2):
+                    avg1 = np.mean(prices[i : i + len1])
+                    for j in range(i + len1 + 1, len(prices) - len2 + 1):
+                        avg2 = np.mean(prices[j : j + len2])
+                        combined_avg = (avg1 * len1 + avg2 * len2) / total_needed_qh
+                        if combined_avg > best_avg:
+                            best_avg = combined_avg
+                            best_combination = [(i, i + len1 - 1), (j, j + len2 - 1)]
+
+        elif num_blocks == 3:
+            # Разделяме на три части (len1 + len2 + len3 = total_needed_qh)
+            # За по-бърза работа оптимизираме търсенето
+            for len1 in range(1, total_needed_qh - 1):
+                for len2 in range(1, total_needed_qh - len1):
+                    len3 = total_needed_qh - len1 - len2
+                    for i in range(len(prices) - len1 - len2 - len3):
+                        val1 = np.sum(prices[i : i + len1])
+                        for j in range(i + len1 + 1, len(prices) - len2 - len3):
+                            val2 = np.sum(prices[j : j + len2])
+                            for k in range(j + len2 + 1, len(prices) - len3 + 1):
+                                val3 = np.sum(prices[k : k + len3])
+                                combined_avg = (val1 + val2 + val3) / total_needed_qh
+                                if combined_avg > best_avg:
+                                    best_avg = combined_avg
+                                    best_combination = [(i, i + len1 - 1), (j, j + len2 - 1), (k, k + len3 - 1)]
+
+        # 3. Показване на резултатите
+        st.subheader("📅 План за максимална печалба:")
         
-        blocks = []
-        if len(top_indices) > 0:
-            start_idx = top_indices[0]
-            last_idx = start_idx
-            for i in range(1, len(top_indices)):
-                if top_indices[i] == last_idx + 1:
-                    last_idx = top_indices[i]
-                else:
-                    blocks.append((start_idx, last_idx))
-                    start_idx = top_indices[i]
-                    last_idx = start_idx
-            blocks.append((start_idx, last_idx))
-
-        # Ограничаваме до избрания брой периоди
-        blocks = sorted(blocks, key=lambda x: df.loc[x[0]:x[1], 'Цена (EUR/MWh)'].mean(), reverse=True)[:num_periods]
-        blocks.sort(key=lambda x: x[0]) 
-
-        st.subheader("📅 План за деня:")
-        
-        for i in range(len(blocks)):
-            b_start, b_end = blocks[i]
-            start_time = df.loc[b_start, 'Период на доставка'].split('-')[0]
-            end_time = df.loc[b_end, 'Период на доставка'].split('-')[1]
+        for idx, (b_start, b_end) in enumerate(best_combination):
+            start_t = df.loc[b_start, 'Период на доставка'].split('-')[0]
+            end_t = df.loc[b_end, 'Период на доставка'].split('-')[1]
             avg_p = df.loc[b_start:b_end, 'Цена (EUR/MWh)'].mean()
+            
+            st.success(f"🟢 **ПРОДАВАЙ: {start_t} - {end_t}** | Средна: **{avg_p:.2f} EUR**")
+            
+            if idx < len(best_combination) - 1:
+                p_start = df.loc[b_end, 'Период на доставка'].split('-')[1]
+                p_end = df.loc[best_combination[idx+1][0], 'Период на доставка'].split('-')[0]
+                p_avg = df.loc[b_end+1 : best_combination[idx+1][0]-1, 'Цена (EUR/MWh)'].mean()
+                st.error(f"🔴 **НЕ ПРОДАВАЙ: {p_start} - {p_end}** | Средна: **{p_avg:.2f} EUR**")
 
-            # ЗЕЛЕНО: ПРОДАВАЙ
-            st.success(f"🟢 **ПРОДАВАЙ: {start_time} - {end_time}** | Цена: **{avg_p:.2f} EUR**")
-
-            # ЧЕРВЕНО: НЕ ПРОДАВАЙ (със средна цена)
-            if i < len(blocks) - 1:
-                next_start_idx = blocks[i+1][0]
-                pause_idx_start = b_end + 1
-                pause_idx_end = next_start_idx - 1
-                
-                if pause_idx_start <= pause_idx_end:
-                    pause_start = df.loc[b_end, 'Период на доставка'].split('-')[1]
-                    pause_end = df.loc[next_start_idx, 'Период на доставка'].split('-')[0]
-                    # Изчисляваме средната цена за периода "Не продавай"
-                    pause_avg_p = df.loc[pause_idx_start:pause_idx_end, 'Цена (EUR/MWh)'].mean()
-                    st.error(f"🔴 **НЕ ПРОДАВАЙ: {pause_start} - {pause_end}** | Цена: **{pause_avg_p:.2f} EUR**")
-
-        if blocks:
-            total_avg = sum(df.loc[b[0]:b[1], 'Цена (EUR/MWh)'].mean() for b in blocks) / len(blocks)
-            st.metric("Средна цена на продажба", f"{total_avg:.2f} EUR")
+        st.metric("Обща средна цена за всички работни QH", f"{best_avg:.2f} EUR")
 
     except Exception as e:
         st.error(f"Грешка: {e}")
-        
